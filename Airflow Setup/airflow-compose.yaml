@@ -1,0 +1,249 @@
+services:
+  mongodb:
+    image: mongo:8.2.7
+    container_name: de_mongodb
+    restart: always
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    command: --quiet
+    networks:
+      - de_network
+    environment:
+        MONGO_INITDB_ROOT_USERNAME: yassine
+        MONGO_INITDB_ROOT_PASSWORD: yassine123
+        MONGO_INITDB_DATABASE: admin
+    ports:
+        - 27017:27017
+    volumes:
+        - ./mongo-init.sh:/docker-entrypoint-initdb.d/01-mongo-init.sh:ro
+        - ./create-user.js:/docker-entrypoint-initdb.d/02-create-user.js:ro
+        - ../db:/tmp/data
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.9
+    container_name: de_redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info", "--brokers", "redpanda:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    networks:
+      - de_network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  courses-producer:
+    build:
+      context: ../PHASE_07_SERVING_STREAMING/streaming
+      dockerfile: Dockerfile
+    container_name: de_courses_producer
+    command: ["python", "/app/producer_courses_events.py"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      COURSES_TOPIC: courses.events
+      COURSES_API_MODE: mongo_poll
+      COURSES_POLL_SECONDS: "10"
+      COURSES_API_URL: ""
+      COURSES_API_KEY: ""
+      MONGO_URI: ${MONGO_URI:-mongodb://de_pipeline:de_pipeline123@mongodb:27017/mydb?authSource=admin}
+      MONGO_DB: mydb
+      MONGO_COURSES_COLLECTION: courses
+      COURSES_CHECKPOINT_PATH: /tmp/courses_poll_checkpoint.txt
+
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - de_network
+
+  courses-consumer:
+    build:
+      context: ../PHASE_07_SERVING_STREAMING/streaming
+      dockerfile: Dockerfile
+    container_name: de_courses_consumer
+    command: ["python", "/app/consumer_courses_events.py"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      COURSES_TOPIC: courses.events
+      COURSES_CONSUMER_GROUP: courses-events-bronze
+      BRONZE_STREAM_PATH: /data/bronze_stream/courses_events
+    volumes:
+      - ./data:/data
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - de_network
+
+  kpi-dashboard:
+    build:
+      context: ../PHASE_07_SERVING_STREAMING/dashboard
+      dockerfile: Dockerfile
+    container_name: de_kpi_dashboard
+    environment:
+      DUCKDB_PATH: /data/gold/gold.duckdb
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/data
+    networks:
+      - de_network
+
+  airflow-postgres:
+    image: postgres:16
+    container_name: de_airflow_postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - airflow-postgres-db-volume:/var/lib/postgresql/data
+    networks:
+      - de_network
+
+  # duckdb-service:
+  #   image: duckdb/duckdb:latest
+  #   container_name: de_duckdb
+  #   entrypoint: ["/duckdb"]
+  #   command: ["/data/gold/gold.duckdb", "-c", "select 1;"]
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./data:/data
+  #   networks:
+  #     - de_network
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: airflow.Dockerfile
+    image: de-airflow:2.10.3
+    container_name: de_airflow_init
+    entrypoint: /bin/bash
+    user: "0:0"
+    command:
+      - -c
+      - |
+        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins /opt/airflow/data && \
+        chown -R ${AIRFLOW_UID:-50000}:0 /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins /opt/airflow/data && \
+        airflow db migrate && \
+        airflow users create \
+          --role Admin \
+          --username airflow \
+          --password airflow \
+          --firstname Air \
+          --lastname Flow \
+          --email airflow@example.com
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW_UID: "${AIRFLOW_UID:-50000}"
+      AIRFLOW_VAR_MONGO_URI: "${MONGO_URI:-mongodb://de_pipeline:de_pipeline123@mongodb:27017/mydb?authSource=admin}"
+      AIRFLOW_VAR_MONGO_DB: "mydb"
+      AIRFLOW_VAR_BRONZE_PATH: "/opt/airflow/data/bronze"
+      AIRFLOW_VAR_DUCKDB_PATH: "/opt/airflow/data/gold/gold.duckdb"
+    volumes:
+      - ../PHASE_04_BRONZE_STORAGE:/opt/airflow/dags/phase4
+      - ../PHASE_05_SILVER_STANDARDIZATION:/opt/airflow/dags/phase5
+      - ../PHASE_06_GOLD_MODELING:/opt/airflow/dags/phase6
+      - ./data:/opt/airflow/data
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+
+    networks:
+      - de_network
+
+  airflow-webserver:
+    image: de-airflow:2.10.3
+    container_name: de_airflow_webserver
+    command: webserver
+    user: "${AIRFLOW_UID:-50000}:0"
+    ports:
+      - "8080:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW_UID: "${AIRFLOW_UID:-50000}"
+      AIRFLOW_VAR_MONGO_URI: "${MONGO_URI:-mongodb://de_pipeline:de_pipeline123@mongodb:27017/mydb?authSource=admin}"
+      AIRFLOW_VAR_MONGO_DB: "mydb"
+      AIRFLOW_VAR_BRONZE_PATH: "/opt/airflow/data/bronze"
+      AIRFLOW_VAR_DUCKDB_PATH: "/opt/airflow/data/gold/gold.duckdb"
+    volumes:
+      - ../PHASE_04_BRONZE_STORAGE:/opt/airflow/dags/phase4
+      - ../PHASE_05_SILVER_STANDARDIZATION:/opt/airflow/dags/phase5
+      - ../PHASE_06_GOLD_MODELING:/opt/airflow/dags/phase6
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+    networks:
+      - de_network
+
+  airflow-scheduler:
+    image: de-airflow:2.10.3
+    container_name: de_airflow_scheduler
+    command: scheduler
+    user: "${AIRFLOW_UID:-50000}:0"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW_UID: "${AIRFLOW_UID:-50000}"
+      AIRFLOW_VAR_MONGO_URI: "${MONGO_URI:-mongodb://de_pipeline:de_pipeline123@mongodb:27017/mydb?authSource=admin}"
+      AIRFLOW_VAR_MONGO_DB: "mydb"
+      AIRFLOW_VAR_BRONZE_PATH: "/opt/airflow/data/bronze"
+      AIRFLOW_VAR_DUCKDB_PATH: "/opt/airflow/data/gold/gold.duckdb"
+    volumes:
+      - ../PHASE_04_BRONZE_STORAGE:/opt/airflow/dags/phase4
+      - ../PHASE_05_SILVER_STANDARDIZATION:/opt/airflow/dags/phase5
+      - ../PHASE_06_GOLD_MODELING:/opt/airflow/dags/phase6
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+    networks:
+      - de_network
+
+volumes:
+  airflow-postgres-db-volume:
+  redpanda-data:
+
+networks:
+  de_network:
+    driver: bridge

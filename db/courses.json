@@ -1,0 +1,20 @@
+[
+  {
+    "_id": { "$oid": "696e1ce27258276b9e534968" },
+    "course_name": "Advanced MongoDB Techniques",
+    "created_at": { "$date": "2024-01-15T10:30:00Z" },
+    "updated_at": { "$date": "2025-03-20T14:45:22Z" }
+  },
+  {
+    "_id": { "$oid": "696e1ce27258276b9e534969" },
+    "course_name": "Introduction to Python Programming",
+    "created_at": { "$date": "2024-02-10T09:15:00Z" },
+    "updated_at": { "$date": "2025-03-18T11:20:00Z" }
+  },
+  {
+    "_id": { "$oid": "696e1ce27258276b9e53496a" },
+    "course_name": "Web Development with React",
+    "created_at": { "$date": "2024-03-05T14:00:00Z" },
+    "updated_at": { "$date": "2025-03-22T16:30:45Z" }
+  }
+]

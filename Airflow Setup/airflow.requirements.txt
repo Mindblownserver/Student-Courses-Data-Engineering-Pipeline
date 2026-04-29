@@ -1,0 +1,5 @@
+pymongo==4.8.0
+pandas==2.2.3
+pyarrow==17.0.0
+pyspark==3.5.2
+duckdb==1.1.3
