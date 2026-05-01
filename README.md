@@ -39,7 +39,7 @@ This pipeline's main goal is to compute my friend's KPIs, which are the followin
 
 ---
 
-This project follows medallion architecture, as seen bellow.
+This project follows [medallion architecture](assets/diagram-export-20-04-2026-09_22_44-20260501231908-np3ok8k.svg), as seen bellow.
 
 ![diagram-export-20-04-2026-09_22_44](assets/diagram-export-20-04-2026-09_22_44-20260501231908-np3ok8k.svg)
 
