@@ -1,97 +1,111 @@
-Project: Data Engineering — Bronze → Silver → Gold (with streaming)
-=============================================
+# Student Courses Data Engineering Pipeline
 
-Overview
---------
-This repository contains a small end-to-end data engineering project that implements a layered pipeline:
+> "*Giving private tutors the KPIs they need*"
 
-- Phase 04 — Bronze: MongoDB extraction into Parquet (date-partitioned) with metadata and watermarks
-- Phase 05 — Silver: Standardization and quality gates (Pandas-based) producing clean parquet + quarantine files
-- Phase 06 — Gold: OLAP modeling using DuckDB (dimensions, facts, KPI materialized tables)
-- Phase 07 — Serving / Streaming: lightweight streaming producer/consumer (Kafka) and a Streamlit dashboard
+<video controls="controls" src="assets/Screencast from 01-05-26 16_57_18-20260501235831-mjvmzt3.webm"></video>
 
-The Airflow-based orchestration lives in the "Airflow Setup" area and the DAGs in their respective PHASE_* folders.
+## Table of Contents
 
-Quick Project Map
------------------
-- PHASE_04_BRONZE_STORAGE/: ingestion code (ingest_client_db_mongodb_phase4.py) and README for Bronze layering
-- PHASE_05_SILVER_STANDARDIZATION/: silver standardization DAG (silver_standardization_dag.py) and utils/data_quality.py
-- PHASE_06_GOLD_MODELING/: gold DAG (gold_modeling_duckdb_dag.py) and README_PHASE_06.md
-- PHASE_07_SERVING_STREAMING/streaming/: producer/consumer for courses events (Kafka), Dockerfile, requirements
-- PHASE_07_SERVING_STREAMING/dashboard/: Streamlit dashboard to surface KPIs (Dockerfile, requirements)
-- Airflow Setup/: helper Dockerfile, requirements, and environment example (.env.example). Contains runtime paths used by DAGs (/opt/airflow/data/...)
-- db/: small sample JSON files used by local/testing (students.json, courses.json, users.json)
+---
 
-Important Paths & Artifacts
----------------------------
-- Bronze parquet path (configured in DAGs / phase code): /opt/airflow/data/bronze/{collection}/YYYY/MM/DD/*.parquet
-- Bronze stream JSONL (streaming consumer): /data/bronze_stream/courses_events/YYYY/MM/DD/events.jsonl
-- Silver parquet path: /opt/airflow/data/silver/{collection}/YYYY/MM/DD/*_clean_00.parquet
-- Gold DuckDB file: /opt/airflow/data/gold/gold.duckdb
-- Gold metrics: /opt/airflow/data/gold/metrics/YYYY/MM/DD/gold_metrics.json
+- [Context](#20260501154856-43szmve)
+- [KPIs covered](#20260501160823-io7b1lq)
+- [Architecture](#20260501161807-dt7u3kq)
+- [Technologies used](#20260501162505-zo3f8eo)
+- [Download & setup](#20260501163321-3e5l72o)
+- Project Structure
 
-Configuration (Airflow Variables & ENV)
--------------------------------------
-The DAGs and ingestion scripts expect certain Airflow Variables or environment variables to be set:
+## <span id="20260501154856-43szmve" style="display: none;"></span>Context
 
-- MONGO_URI (Airflow Variable): MongoDB connection string used by Phase 04 ingestion
-- MONGO_DB (Airflow Variable): Mongo database name
-- duckdb_path (Airflow Variable, optional): path to gold.duckdb (default: /opt/airflow/data/gold/gold.duckdb)
-- bronze_path (Airflow Variable, optional): root for bronze files (default: /data/bronze in some scripts; many DAGs use /opt/airflow/data/bronze)
+---
 
-See Airflow Setup/.env.example for a simple example of container uid and hints for Mongo URI.
+A friend of mine owns a plateform that teachs students and preps them for the national exam. He published many courses. **But**, he lacked something pivotal for his business' growth, and that's **visibility**!
 
-Quick Start (development)
--------------------------
-These are minimal instructions to run parts of the project locally for development. The real deployment expects Docker / Airflow orchestration and a Kafka broker.
+He didn't know which course is most demanded, per region. He had the data, but not the **information**.
 
-1. Airflow (DAGs)
-   - Build image with Airflow requirements (Airflow Setup/airflow.Dockerfile and airflow.requirements.txt).
-   - Provide Airflow Variables (MONGO_URI, MONGO_DB) and mount a shared volume at /opt/airflow/data to match DAG paths.
-   - Place DAGs under the Airflow dags folder (the PHASE_*.py files are importable by the Airflow installation).
+As such, Halim Chaouch and I made this project.
 
-2. Running Bronze ingestion locally (without Airflow)
-   - Ensure Python 3 is installed and install pandas + pymongo: pip install pandas pymongo pyarrow fastparquet
-   - Set environment variables or adapt Variable.get() calls in the module. You can also call ingest_collection(...) directly from a small script.
+## <span id="20260501160823-io7b1lq" style="display: none;"></span>KPIs covered
 
-3. Streaming producer / consumer (Kafka required)
-   - Install dependencies for streaming: pip install -r PHASE_07_SERVING_STREAMING/streaming/requirements.txt
-   - Start a Kafka-compatible broker (Redpanda or local Kafka). Set KAFKA_BOOTSTRAP_SERVERS env var if needed.
-   - Start consumer to write bronze stream JSONL files:
-     python PHASE_07_SERVING_STREAMING/streaming/consumer_courses_events.py
-   - Start producer to publish courses events (modes: mongo_poll or mock):
-     COURSES_API_MODE=mock python PHASE_07_SERVING_STREAMING/streaming/producer_courses_events.py
+---
 
-4. Dashboard (Streamlit)
-   - Install requirements: pip install -r PHASE_07_SERVING_STREAMING/dashboard/requirements.txt
-   - Run: streamlit run PHASE_07_SERVING_STREAMING/dashboard/kpi_dashboard.py
-   - Dashboard reads DuckDB file (see README_PHASE_06.md for path /opt/airflow/data/gold/gold.duckdb)
+This pipeline's main goal is to compute my friend's KPIs, which are the following:
 
-Key Commands (examples)
------------------------
-- Run Bronze ingestion (ad-hoc):
-  python -c "from PHASE_04_BRONZE_STORAGE.ingest_client_db_mongodb_phase4 import ingest_collection; print(ingest_collection('students','2026-04-29'))"
-- Run Silver standardization (ad-hoc):
-  python -c "from PHASE_05_SILVER_STANDARDIZATION.silver_standardization_dag import standardize_collection; print(standardize_collection('students','2026-04-29'))"
-- Run Gold modeling (ad-hoc):
-  python -c "from PHASE_06_GOLD_MODELING.gold_modeling_duckdb_dag import build_gold_for_ds; print(build_gold_for_ds('2026-04-29'))"
+- Course enrollement by course name and region/date
+- Students' paid rate by region
+- Student's paid and unpaid rate by region/date
 
-Notes, Caveats, and TODOs
-------------------------
-- This repository is structured as a teaching / lab project. Many paths are hard-coded to /opt/airflow/data or /data/* to match a Docker Compose layout used during development.
-- The Airflow DAGs dynamically import local callables from phase modules using known candidate paths — ensure DAGs and phase modules are reachable by Airflow's Python path.
-- The streaming code requires a Kafka broker and (for mongo_poll mode) a running MongoDB instance.
-- DuckDB is used for Gold modeling for convenience; materialized KPI tables are implemented as persisted tables refreshed by the DAG.
-- Review README_PHASE_04.md and README_PHASE_06.md for more detail on Bronze and Gold.
+## <span id="20260501161807-dt7u3kq" style="display: none;"></span>Architecture
 
-Where to Look Next
-------------------
-- PHASE_04_BRONZE_STORAGE/README_PHASE_04.md — Bronze design and operational guidance
-- PHASE_06_GOLD_MODELING/README_PHASE_06.md — Gold modeling and DuckDB notes
-- PHASE_05_SILVER_STANDARDIZATION/utils/data_quality.py — canonical standardization rules
-- PHASE_07_SERVING_STREAMING/streaming/* — Kafka producer and consumer for course events
-- Airflow Setup/* — Dockerfile and requirements used to build the Airflow image
+---
 
-Author
-------
-Repository maintained by the project author. See git history for commit metadata.
+This project follows medallion architecture, as seen bellow.
+
+![diagram-export-20-04-2026-09_22_44](assets/diagram-export-20-04-2026-09_22_44-20260501231908-np3ok8k.svg)
+
+The bronze layer holds ingestion logic. We fetch from two mongodb collections: **Students** and **Courses** collections. Students are fetched regularily through batch ingestion, while Courses are fetched in real-time "streaming". *E*
+
+The silver layer applies transformations. *T*
+
+Then these transformed data are loaded in our production/gold database. *L*
+
+Thus, we have *ETL* pipeline!
+
+There's an additional layer called serving layer. It's responsible to display KPIs in gold layer database in beautful figures.
+
+## <span id="20260501162505-zo3f8eo" style="display: none;"></span>Technologies used
+
+---
+
+|Tech|Reason|
+| -------------------------| ------------------------------------------------------------------------------------------------------------------------------------|
+|Pandas|The transformations are simple, and data aren't big. So no need to use Spark or Dask|
+|Airflow|Used to orchastrate our DAGs.|
+|Redpanda (kafka in c++)|For streaming, we needed publish/subscribe pattern. Redpanda is the more performant variant of kafka|
+|DuckDB|We needed OLAP columnar Database. A lightweight, simple, yet powerful one.|
+|Parquet|Simple alternative to big data warehouses in each layer. Our project is simple, so we opted for the simplest data storage approach|
+|Streamlit|Straightforward and simple way to spin up dashboard website in python. Can host dashboard for free...|
+
+## <span id="20260501163321-3e5l72o" style="display: none;"></span>Download & Setup
+
+---
+
+Clone this reposiotry with
+
+```bash
+git clone git@github.com:Mindblownserver/Student-Courses-Data-Engineering-Pipeline.git
+```
+
+Go to `Airflow Setup`​ and run the `airflow-compose.yaml` file
+
+```bash
+cd "Airflow Setup" && docker-compose -f airflow-compose up -d --build
+```
+
+If you have the new version of docker, then type `docker compose`​ instead of `docker-compose`.
+
+Now you have your very own pipeline working :)
+
+## Project Structure
+
+---
+
+- ​`PHASE_04_BRONZE`
+
+  This holds the DAG that responsible for bronze layer
+- ​`PHASE_07_SERVING_STREAMING/streaming`
+
+  This holds 2 python scripts: one for the Kafka producer, the other for the Kafka Consumer.  
+  The sources don't support streaming, so we had a producer that polls the database ever X seconds and if it detects changes (thanks to watermark), we publish it to the message broker for the consumer to...consume.  
+  The consmer part when it detects a new course, it will save it in `.jsonl` file. Now courses are ready to enter the silver layer
+- ​`PHASE_05_SILVER`
+
+  Holds logic behind silver layer's transformations.
+- ​`PHASE_06_GOLD`
+
+  Finally, when everything goes well, it creates the schema (if it didn't exist) and saves data there.
+- ​`PHASE_07_SERVING_STREAMING/dashboard`
+
+  It holds the intialization script for the streamlit dashboard
+
+‍
