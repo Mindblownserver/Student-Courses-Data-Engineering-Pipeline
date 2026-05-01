@@ -2,7 +2,7 @@
 
 > "*Giving private tutors the KPIs they need*"
 
-<video controls="controls" src="assets/Screencast from 01-05-26 16_57_18-20260501235831-mjvmzt3.webm"></video>
+<video controls="controls" src="assets/dashboard_showcase.webm"></video>
 
 ## Table of Contents
 
@@ -13,7 +13,7 @@
 - [Architecture](#20260501161807-dt7u3kq)
 - [Technologies used](#20260501162505-zo3f8eo)
 - [Download & setup](#20260501163321-3e5l72o)
-- Project Structure
+- [Project Structure](#arch)
 
 ## <span id="20260501154856-43szmve" style="display: none;"></span>Context
 
@@ -86,7 +86,7 @@ If you have the new version of docker, then type `docker compose`​ instead of 
 
 Now you have your very own pipeline working :)
 
-## Project Structure
+## <span id="arch" style="display: none;"></span>Project Structure
 
 ---
 
