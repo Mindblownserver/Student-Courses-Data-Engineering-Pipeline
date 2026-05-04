@@ -2,7 +2,9 @@
 
 > "*Giving private tutors the KPIs they need*"
 
-<video controls="controls" src="assets/dashboard_showcase.webm"></video>
+[dashboard_showcase.webm](https://github.com/user-attachments/assets/52a36904-0256-40d6-a739-3d2056c88a83)
+
+
 
 ## Table of Contents
 
