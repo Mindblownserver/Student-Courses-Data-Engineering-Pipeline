@@ -23,7 +23,7 @@ A friend of mine owns a plateform that teachs students and preps them for the na
 
 He didn't know which course is most demanded, per region. He had the data, but not the **information**.
 
-As such, Halim Chaouch and I made this project.
+As such, **Halim CHAOUCH** and I (**Mohamed Yassine KHARRAT**) made this project.
 
 ## <span id="20260501160823-io7b1lq" style="display: none;"></span>KPIs covered
 
